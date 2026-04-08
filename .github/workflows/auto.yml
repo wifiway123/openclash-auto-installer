@@ -1,0 +1,51 @@
+name: 自动同步上游仓库
+
+on:
+  schedule:
+    # 每天北京时间凌晨2点运行（UTC时间18点）
+    - cron: '0 18 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出当前仓库
+        uses: actions/checkout@v4
+        with:
+          # 使用个人访问令牌，确保有推送权限
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 0  # 获取完整历史
+
+      - name: 配置上游仓库
+        run: |
+          # 添加上游仓库（替换为实际需要同步的源仓库）
+          git remote add upstream https://github.com/slobys/openclash-auto-installer.git
+          git fetch upstream
+
+      - name: 合并上游更改
+        run: |
+          # 切换到默认分支（通常是 main 或 master）
+          git checkout main
+          # 尝试合并上游的默认分支
+          git merge upstream/main --allow-unrelated-histories --no-edit || true
+
+      - name: 检查是否有冲突
+        id: check_conflicts
+        run: |
+          if git ls-files -u | grep -q '^'; then
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            echo "存在合并冲突，请手动解决"
+          else
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 推送同步后的更改
+        if: steps.check_conflicts.outputs.has_conflicts == 'false'
+        run: git push origin main
+
+      - name: 冲突通知（可选）
+        if: steps.check_conflicts.outputs.has_conflicts == 'true'
+        run: |
+          echo "::warning::自动合并失败，请手动解决冲突"
+          # 可选：发送邮件或创建Issue提醒
