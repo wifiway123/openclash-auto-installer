@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.1.9
+
+- 修复 SmartDNS 卸载时未先移除 `app-meta-smartdns`，导致 `luci-app-smartdns` 被依赖阻止卸载的问题
+- 优化菜单脚本下载逻辑：先解析最新 commit SHA，再用固定提交地址下载子脚本，避免 GitHub raw 分支缓存返回旧文件
+- README 一键命令改用 jsDelivr 地址，降低 raw 缓存影响
+- 优化菜单交互：从二级菜单返回主菜单时不再额外要求按一次回车
+
+## v1.1.8
+
+- 新增 `smartdns.sh`，支持从 SmartDNS 官方 GitHub Release 安装 / 更新 `smartdns` 与 `luci-app-smartdns`
+- `menu.sh` 新增 SmartDNS 安装、更新检测与安全卸载入口
+- `check-updates.sh` 新增 SmartDNS 最新版本检测
+- `uninstall.sh` 新增 SmartDNS 安全卸载，默认保留 `/etc/config/smartdns`
+- README 同步补充 SmartDNS 使用方式、限制说明与项目文件列表
+
+## v1.1.7
+
+- `passwall.sh` / `passwall2.sh` 增加系统版本兼容映射，优先按 22.03 / 23.05 / 24.10 三档匹配上游构建目录，减少 24.10.x、25.x 和第三方固件版本号导致的软件源路径错误
+- `passwall.sh` / `passwall2.sh` 在依赖不兼容、架构不匹配、第三方固件软件源异常时，输出更明确的排障提示
+- `nikki.sh` 在 `iptables` 环境下输出更直接的限制说明，明确该插件仅支持 `firewall4/nftables`
+- `README.md` 同步补充高风险环境说明和当前脚本的兼容策略
+
 ## v1.1.6
 
 - 优化 README 首页结构，补充“适合谁 / 不适合谁”“推荐使用方式”“支持矩阵”“已知限制”等导航信息

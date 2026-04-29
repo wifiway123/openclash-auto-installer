@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
-BASE_URL="https://raw.githubusercontent.com/slobys/openclash-auto-installer/main"
+REPO="slobys/openclash-auto-installer"
+BRANCH="main"
+BASE_URL="https://raw.githubusercontent.com/$REPO/$BRANCH"
+RESOLVED_BASE_URL=""
 TMP_SCRIPT="/tmp/openclash-menu-action.sh"
 NONINTERACTIVE_ACTION=""
 
@@ -28,6 +31,7 @@ usage() {
   sh menu.sh --check-update-passwall
   sh menu.sh --check-update-passwall2
   sh menu.sh --check-update-nikki
+  sh menu.sh --check-update-smartdns
   sh menu.sh --openclash
   sh menu.sh --openclash-check-update
   sh menu.sh --openclash-plugin-only
@@ -37,9 +41,11 @@ usage() {
   sh menu.sh --passwall
   sh menu.sh --passwall2
   sh menu.sh --nikki
+  sh menu.sh --smartdns
   sh menu.sh --uninstall-passwall
   sh menu.sh --uninstall-passwall2
   sh menu.sh --uninstall-nikki
+  sh menu.sh --uninstall-smartdns
   sh menu.sh --uninstall-openclash
 
 说明:
@@ -72,6 +78,9 @@ parse_args() {
             --check-update-nikki)
                 NONINTERACTIVE_ACTION="check-update-nikki"
                 ;;
+            --check-update-smartdns)
+                NONINTERACTIVE_ACTION="check-update-smartdns"
+                ;;
             --openclash-check-update)
                 NONINTERACTIVE_ACTION="openclash-check-update"
                 ;;
@@ -96,6 +105,9 @@ parse_args() {
             --nikki)
                 NONINTERACTIVE_ACTION="nikki"
                 ;;
+            --smartdns)
+                NONINTERACTIVE_ACTION="smartdns"
+                ;;
             --uninstall-passwall)
                 NONINTERACTIVE_ACTION="uninstall-passwall"
                 ;;
@@ -104,6 +116,9 @@ parse_args() {
                 ;;
             --uninstall-nikki)
                 NONINTERACTIVE_ACTION="uninstall-nikki"
+                ;;
+            --uninstall-smartdns)
+                NONINTERACTIVE_ACTION="uninstall-smartdns"
                 ;;
             --uninstall-openclash)
                 NONINTERACTIVE_ACTION="uninstall-openclash"
@@ -118,6 +133,22 @@ parse_args() {
         esac
         shift
     done
+}
+
+resolve_base_url() {
+    if [ -n "$RESOLVED_BASE_URL" ]; then
+        printf '%s' "$RESOLVED_BASE_URL"
+        return 0
+    fi
+
+    LATEST_SHA="$(curl -fsSL --retry 3 "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null | sed -n 's/.*"sha":[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1 || true)"
+    if [ -n "$LATEST_SHA" ]; then
+        RESOLVED_BASE_URL="https://raw.githubusercontent.com/$REPO/$LATEST_SHA"
+    else
+        RESOLVED_BASE_URL="$BASE_URL"
+    fi
+
+    printf '%s' "$RESOLVED_BASE_URL"
 }
 
 download_and_run() {
@@ -135,11 +166,10 @@ download_and_run() {
         return
     fi
     
-    URL="$BASE_URL/$SCRIPT_NAME"
-    FETCH_URL="$URL?ts=$(date +%s)"
+    URL="$(resolve_base_url)/$SCRIPT_NAME"
 
     log "下载脚本: $URL"
-    curl -fsSL --retry 3 "$FETCH_URL" -o "$TMP_SCRIPT" || die "下载脚本失败: $SCRIPT_NAME"
+    curl -fsSL --retry 3 "$URL" -o "$TMP_SCRIPT" || die "下载脚本失败: $SCRIPT_NAME"
     chmod +x "$TMP_SCRIPT"
     sh "$TMP_SCRIPT" "$@"
 }
@@ -148,22 +178,41 @@ show_menu() {
     cat <<'EOF_MENU'
 ================ 代理插件管理菜单 ================
 1. 检查插件更新
-2. 安装 / 更新 OpenClash（自动识别 Meta / Smart）
-3. 检查 OpenClash 是否有新版本
-4. 只更新 OpenClash 插件
-5. 只安装 OpenClash 核心（自动识别 Meta / Smart）
-6. 只安装 OpenClash 普通 Meta 内核
-7. 只安装 OpenClash Smart Meta 内核
-8. 安装 / 更新 PassWall
-9. 安装 / 更新 PassWall2
-10. 安装 / 更新 Nikki
-11. 卸载 PassWall
-12. 卸载 PassWall2
-13. 卸载 Nikki
-14. 卸载 OpenClash
+2. 安装插件
+3. 卸载插件
 0. 退出
 ==================================================
 EOF_MENU
+}
+
+show_install_menu() {
+    cat <<'EOF_INSTALL_MENU'
+================ 安装插件 ================
+1. 安装 / 更新 OpenClash（自动识别 Meta / Smart）
+2. 只更新 OpenClash 插件
+3. 只安装 OpenClash 核心（自动识别 Meta / Smart）
+4. 只安装 OpenClash 普通 Meta 内核
+5. 只安装 OpenClash Smart Meta 内核
+6. 安装 / 更新 PassWall
+7. 安装 / 更新 PassWall2
+8. 安装 / 更新 Nikki
+9. 安装 / 更新 SmartDNS
+0. 返回上一级
+==========================================
+EOF_INSTALL_MENU
+}
+
+show_uninstall_menu() {
+    cat <<'EOF_UNINSTALL_MENU'
+================ 卸载插件 ================
+1. 卸载 PassWall
+2. 卸载 PassWall2
+3. 卸载 Nikki
+4. 卸载 SmartDNS
+5. 卸载 OpenClash
+0. 返回上一级
+==========================================
+EOF_UNINSTALL_MENU
 }
 
 show_check_update_menu() {
@@ -174,6 +223,7 @@ show_check_update_menu() {
 3. 检查 PassWall
 4. 检查 PassWall2
 5. 检查 Nikki
+6. 检查 SmartDNS
 0. 返回上一级
 ==============================================
 EOF_CHECK_MENU
@@ -192,6 +242,7 @@ run_action() {
     case "$action" in
         1|check-updates)
             run_check_update_menu
+            SKIP_MAIN_PAUSE="1"
             ;;
         check-all-updates)
             download_and_run check-updates.sh
@@ -208,43 +259,60 @@ run_action() {
         check-update-nikki)
             download_and_run check-updates.sh --nikki
             ;;
-        2|openclash)
+        check-update-smartdns)
+            download_and_run check-updates.sh --smartdns
+            ;;
+        2|install-plugins)
+            run_install_menu
+            SKIP_MAIN_PAUSE="1"
+            ;;
+        3|uninstall-plugins)
+            run_uninstall_menu
+            SKIP_MAIN_PAUSE="1"
+            ;;
+        openclash)
             download_and_run install.sh
             ;;
-        3|openclash-check-update)
+        openclash-check-update)
             download_and_run install.sh --check-update --skip-opkg-update
             ;;
-        4|openclash-plugin-only)
+        openclash-plugin-only)
             download_and_run install.sh --plugin-only
             ;;
-        5|openclash-core-only)
+        openclash-core-only)
             download_and_run install.sh --core-only
             ;;
-        6|openclash-meta-core)
+        openclash-meta-core)
             download_and_run install.sh --core-only --meta-core --skip-opkg-update
             ;;
-        7|openclash-smart-core)
+        openclash-smart-core)
             download_and_run install.sh --core-only --smart-core --skip-opkg-update
             ;;
-        8|passwall)
+        passwall)
             download_and_run passwall.sh
             ;;
-        9|passwall2)
+        passwall2)
             download_and_run passwall2.sh
             ;;
-        10|nikki)
+        nikki)
             download_and_run nikki.sh
             ;;
-        11|uninstall-passwall)
+        smartdns)
+            download_and_run smartdns.sh
+            ;;
+        uninstall-passwall)
             download_and_run uninstall.sh passwall --delete-config
             ;;
-        12|uninstall-passwall2)
+        uninstall-passwall2)
             download_and_run uninstall.sh passwall2 --delete-config
             ;;
-        13|uninstall-nikki)
+        uninstall-nikki)
             download_and_run uninstall.sh nikki --delete-config
             ;;
-        14|uninstall-openclash)
+        uninstall-smartdns)
+            download_and_run uninstall.sh smartdns --delete-config
+            ;;
+        uninstall-openclash)
             download_and_run uninstall.sh openclash --delete-config
             ;;
         0)
@@ -260,7 +328,7 @@ run_action() {
 run_check_update_menu() {
     while true; do
         show_check_update_menu
-        printf '请输入选项 [0-5]: ' >/dev/tty
+        printf '请输入选项 [0-6]: ' >/dev/tty
         read_from_tty subchoice
         case "$subchoice" in
             1)
@@ -278,6 +346,9 @@ run_check_update_menu() {
             5)
                 download_and_run check-updates.sh --nikki
                 ;;
+            6)
+                download_and_run check-updates.sh --smartdns
+                ;;
             0)
                 return 0
                 ;;
@@ -286,6 +357,86 @@ run_check_update_menu() {
                 ;;
         esac
         printf '\n按回车键返回检查插件更新菜单...' >/dev/tty
+        read_from_tty _subdummy
+        printf '\n'
+    done
+}
+
+run_install_menu() {
+    while true; do
+        show_install_menu
+        printf '请输入选项 [0-9]: ' >/dev/tty
+        read_from_tty subchoice
+        case "$subchoice" in
+            1)
+                download_and_run install.sh
+                ;;
+            2)
+                download_and_run install.sh --plugin-only
+                ;;
+            3)
+                download_and_run install.sh --core-only
+                ;;
+            4)
+                download_and_run install.sh --core-only --meta-core --skip-opkg-update
+                ;;
+            5)
+                download_and_run install.sh --core-only --smart-core --skip-opkg-update
+                ;;
+            6)
+                download_and_run passwall.sh
+                ;;
+            7)
+                download_and_run passwall2.sh
+                ;;
+            8)
+                download_and_run nikki.sh
+                ;;
+            9)
+                download_and_run smartdns.sh
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                printf '%s\n' '[WARN] 无效选项，请重新输入'
+                ;;
+        esac
+        printf '\n按回车键返回安装插件菜单...' >/dev/tty
+        read_from_tty _subdummy
+        printf '\n'
+    done
+}
+
+run_uninstall_menu() {
+    while true; do
+        show_uninstall_menu
+        printf '请输入选项 [0-5]: ' >/dev/tty
+        read_from_tty subchoice
+        case "$subchoice" in
+            1)
+                download_and_run uninstall.sh passwall --delete-config
+                ;;
+            2)
+                download_and_run uninstall.sh passwall2 --delete-config
+                ;;
+            3)
+                download_and_run uninstall.sh nikki --delete-config
+                ;;
+            4)
+                download_and_run uninstall.sh smartdns --delete-config
+                ;;
+            5)
+                download_and_run uninstall.sh openclash --delete-config
+                ;;
+            0)
+                return 0
+                ;;
+            *)
+                printf '%s\n' '[WARN] 无效选项，请重新输入'
+                ;;
+        esac
+        printf '\n按回车键返回卸载插件菜单...' >/dev/tty
         read_from_tty _subdummy
         printf '\n'
     done
@@ -302,12 +453,15 @@ main() {
 
     while true; do
         show_menu
-        printf '请输入选项 [0-14]: ' >/dev/tty
+        printf '请输入选项 [0-3]: ' >/dev/tty
         read_from_tty choice
+        SKIP_MAIN_PAUSE="0"
         run_action "$choice"
-        printf '\n按回车键返回菜单...' >/dev/tty
-        read_from_tty _dummy
-        printf '\n'
+        if [ "$SKIP_MAIN_PAUSE" != "1" ]; then
+            printf '\n按回车键返回菜单...' >/dev/tty
+            read_from_tty _dummy
+            printf '\n'
+        fi
     done
 }
 
