@@ -119,16 +119,51 @@ download_url() {
     OUT="$2"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 --connect-timeout 15 "$URL" -o "$OUT"
+        curl -fsSL --retry 3 --connect-timeout 15 \
+            -A "openclaw-openwrt-installer" \
+            "$URL" -o "$OUT"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$OUT" "$URL"
+        wget -qO "$OUT" --user-agent="openclaw-openwrt-installer" "$URL"
+    else
+        die "缺少 curl 或 wget，无法下载文件"
+    fi
+}
+
+download_github_api() {
+    URL="$1"
+    OUT="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --connect-timeout 15 \
+            -A "openclaw-openwrt-installer" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$URL" -o "$OUT"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$OUT" \
+            --user-agent="openclaw-openwrt-installer" \
+            --header="Accept: application/vnd.github+json" \
+            --header="X-GitHub-Api-Version: 2022-11-28" \
+            "$URL"
     else
         die "缺少 curl 或 wget，无法下载文件"
     fi
 }
 
 fetch_release_json() {
-    download_url "$SMARTDNS_API" "$TMP_ROOT/release.json" || die "获取 SmartDNS 最新 Release 信息失败"
+    if download_github_api "$SMARTDNS_API" "$TMP_ROOT/release.json"; then
+        return 0
+    fi
+
+    warn "GitHub API 获取失败，尝试从 Release 页面解析下载列表"
+    download_url "https://github.com/pymumu/smartdns/releases/latest" "$TMP_ROOT/latest.html" || die "获取 SmartDNS 最新 Release 页面失败"
+
+    LATEST_TAG="$(sed -n 's#.*releases/tag/\(Release[^"?<> ]*\).*#\1#p' "$TMP_ROOT/latest.html" | head -n1 || true)"
+    [ -n "$LATEST_TAG" ] || die "无法解析 SmartDNS 最新 Release 标签"
+
+    download_url "https://github.com/pymumu/smartdns/releases/expanded_assets/$LATEST_TAG" "$TMP_ROOT/assets.html" || die "获取 SmartDNS Release 资产列表失败"
+    sed -n 's#.*href="\(/pymumu/smartdns/releases/download/[^"?]*\)".*#{"browser_download_url":"https://github.com\1"}#p' "$TMP_ROOT/assets.html" > "$TMP_ROOT/release.json"
+    [ -s "$TMP_ROOT/release.json" ] || die "无法解析 SmartDNS Release 资产下载链接"
 }
 
 find_asset_url() {
@@ -197,9 +232,18 @@ install_release_packages() {
     log "下载 LuCI SmartDNS: $(basename "$LUCI_PKG")"
     download_url "$LUCI_URL" "$LUCI_PKG" || die "下载 LuCI SmartDNS 包失败"
 
-    log "安装 / 更新 SmartDNS 与 LuCI 界面"
+    log "安装 / 更新 SmartDNS"
     # shellcheck disable=SC2086
-    $INSTALL_CMD "$CORE_PKG" "$LUCI_PKG" || die "安装 SmartDNS 失败，请检查系统依赖或软件源"
+    $INSTALL_CMD "$CORE_PKG" || die "安装 SmartDNS 失败，请检查系统依赖或软件源"
+
+    if [ "$PKG_MGR" = "opkg" ] && opkg status luci-i18n-smartdns-zh-cn >/dev/null 2>&1; then
+        warn "检测到旧版 luci-i18n-smartdns-zh-cn 可能与新版 luci-app-smartdns 文件冲突，使用 --force-depends 预先移除"
+        opkg remove --force-depends luci-i18n-smartdns-zh-cn || die "移除冲突语言包失败，请手动执行: opkg remove --force-depends luci-i18n-smartdns-zh-cn"
+    fi
+
+    log "安装 / 更新 LuCI SmartDNS 界面"
+    # shellcheck disable=SC2086
+    $INSTALL_CMD "$LUCI_PKG" || die "安装 LuCI SmartDNS 失败，请检查系统依赖或软件源"
 }
 
 refresh_luci() {
