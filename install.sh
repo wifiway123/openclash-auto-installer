@@ -252,10 +252,11 @@ maybe_update_index_opkg() {
         if opkg update; then
             return 0
         fi
-        die "opkg update 仍然失败；如你刚执行过软件源刷新，可改用 --skip-opkg-update 重试"
     fi
 
-    die "opkg update 失败"
+    warn "opkg update 未完全成功，可能是某个第三方 feed 临时不可用"
+    warn "将继续尝试安装；如果后续依赖安装失败，请修复 /etc/opkg/customfeeds.conf 后重试"
+    return 0
 }
 
 maybe_update_index_apk() {
