@@ -89,6 +89,7 @@ parse_args() {
 normalize_version() {
     VER="${1:-}"
     VER="${VER#v}"
+    VER="${VER#Release}"
     VER="${VER%%-*}"
     printf '%s' "$VER"
 }
@@ -97,13 +98,49 @@ fetch_latest_tag_jsonfilter() {
     NAME="$1"
     URL="$2"
     OUT="$TMP_ROOT/$NAME.json"
-    curl -fsSL --retry 3 --connect-timeout 15 "$URL" -o "$OUT" || return 1
-    jsonfilter -i "$OUT" -e '@.tag_name' 2>/dev/null || true
+    TAG=""
+    if fetch_url "$URL" "$OUT"; then
+        TAG="$(sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' "$OUT" | head -n1)"
+    fi
+    [ -n "$TAG" ] || TAG="$(fetch_latest_tag_page "$URL" "$TMP_ROOT/$NAME.html" || true)"
+    printf '%s\n' "$TAG"
 }
 
 fetch_latest_tag_wget_sed() {
     URL="$1"
-    wget -qO- "$URL" 2>/dev/null | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
+    OUT="$TMP_ROOT/latest-tag.json"
+    TAG=""
+    if fetch_url "$URL" "$OUT"; then
+        TAG="$(sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' "$OUT" | head -n1)"
+    fi
+    [ -n "$TAG" ] || TAG="$(fetch_latest_tag_page "$URL" "$TMP_ROOT/latest-tag.html" || true)"
+    printf '%s\n' "$TAG"
+}
+
+fetch_latest_tag_page() {
+    API_URL="$1"
+    OUT="$2"
+
+    PAGE_URL="$(printf '%s' "$API_URL" | sed 's|^https://api.github.com/repos/\([^/]*\)/\([^/]*\)/releases/latest$|https://github.com/\1/\2/releases/latest|')"
+    [ "$PAGE_URL" != "$API_URL" ] || return 1
+
+    fetch_url "$PAGE_URL" "$OUT" || return 1
+    sed -n 's|.*href="/[^"]*/releases/tag/\([^"/?#]*\)".*|\1|p' "$OUT" | head -n1
+}
+
+fetch_url() {
+    URL="$1"
+    OUT="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --connect-timeout 15 "$URL" -o "$OUT" 2>/dev/null && return 0
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -qO "$OUT" "$URL" 2>/dev/null && return 0
+    fi
+
+    return 1
 }
 
 print_result() {
@@ -126,6 +163,11 @@ print_result() {
         return 0
     fi
 
+    if [ "$INSTALLED" = "installed" ]; then
+        printf '%s\n' "  状态: 已安装，无法比较版本"
+        return 0
+    fi
+
     INSTALLED_NORM="$(normalize_version "$INSTALLED")"
     LATEST_NORM="$(normalize_version "$LATEST")"
 
@@ -136,14 +178,48 @@ print_result() {
     fi
 }
 
+print_result_no_compare() {
+    NAME="$1"
+    INSTALLED="$2"
+    LATEST="$3"
+    NOTE="$4"
+
+    printf '%s\n' ""
+    printf '%s\n' "[$NAME]"
+    printf '  当前版本: %s\n' "${INSTALLED:-not installed}"
+    printf '  最新版本: %s\n' "${LATEST:-unknown}"
+
+    if [ -z "${INSTALLED:-}" ]; then
+        printf '%s\n' "  状态: 未安装"
+    else
+        printf '%s\n' "  状态: 已安装，版本仅供参考"
+    fi
+    [ -z "${NOTE:-}" ] || printf '  说明: %s\n' "$NOTE"
+}
+
 get_installed_opkg_version() {
     PKG="$1"
     opkg status "$PKG" 2>/dev/null | sed -n 's/^Version: //p' | head -n1 || true
 }
 
 get_installed_apk_version() {
-    PKG="$1"
-    apk info -a "$PKG" 2>/dev/null | sed -n 's/^version: //p' | head -n1 || true
+    for PKG in "$@"; do
+        apk info -e "$PKG" >/dev/null 2>&1 || continue
+
+        VER="$(apk list --installed --manifest "$PKG" 2>/dev/null | awk -v pkg="$PKG" '$1 == pkg {print $2; exit}' || true)"
+        [ -n "$VER" ] || VER="$(apk list --installed "$PKG" 2>/dev/null | sed -n 's/^'"$PKG"'-\([^[:space:]]*\).*/\1/p' | head -n1 || true)"
+        [ -n "$VER" ] || VER="$(apk info -v "$PKG" 2>/dev/null | sed -n 's/^'"$PKG"'-\([^[:space:]]*\).*/\1/p' | head -n1 || true)"
+        [ -n "$VER" ] || VER="$(apk info -a "$PKG" 2>/dev/null | sed -n 's/^[Vv]ersion:[[:space:]]*//p' | head -n1 || true)"
+        printf '%s' "${VER:-installed}"
+        return 0
+    done
+
+    printf ''
+}
+
+get_mosdns_runtime_version() {
+    command -v mosdns >/dev/null 2>&1 || return 0
+    mosdns version 2>/dev/null | sed -n 's/.*\(v[0-9][0-9A-Za-z._-]*\).*/\1/p' | head -n1 || true
 }
 
 check_openclash() {
@@ -158,25 +234,23 @@ check_openclash() {
 }
 
 check_passwall() {
-    if [ "$PKG_MGR" != "opkg" ]; then
-        print_result "PassWall" "" ""
-        printf '%s\n' "  说明: 当前仅在 opkg 环境下检测 PassWall"
-        return 0
+    if [ "$PKG_MGR" = "opkg" ]; then
+        INSTALLED="$(get_installed_opkg_version luci-app-passwall)"
+    else
+        INSTALLED="$(get_installed_apk_version luci-app-passwall)"
     fi
 
-    INSTALLED="$(get_installed_opkg_version luci-app-passwall)"
     LATEST="$(fetch_latest_tag_wget_sed "$PASSWALL_API" || true)"
     print_result "PassWall" "$INSTALLED" "$LATEST"
 }
 
 check_passwall2() {
-    if [ "$PKG_MGR" != "opkg" ]; then
-        print_result "PassWall2" "" ""
-        printf '%s\n' "  说明: 当前仅在 opkg 环境下检测 PassWall2"
-        return 0
+    if [ "$PKG_MGR" = "opkg" ]; then
+        INSTALLED="$(get_installed_opkg_version luci-app-passwall2)"
+    else
+        INSTALLED="$(get_installed_apk_version luci-app-passwall2)"
     fi
 
-    INSTALLED="$(get_installed_opkg_version luci-app-passwall2)"
     LATEST="$(fetch_latest_tag_wget_sed "$PASSWALL2_API" || true)"
     print_result "PassWall2" "$INSTALLED" "$LATEST"
 }
@@ -185,18 +259,19 @@ check_smartdns() {
     if [ "$PKG_MGR" = "opkg" ]; then
         INSTALLED="$(get_installed_opkg_version smartdns)"
     else
-        INSTALLED="$(get_installed_apk_version smartdns)"
+        INSTALLED="$(get_installed_apk_version smartdns luci-app-smartdns)"
     fi
 
     LATEST="$(fetch_latest_tag_jsonfilter smartdns "$SMARTDNS_API" || true)"
-    print_result "SmartDNS" "$INSTALLED" "$LATEST"
+    print_result_no_compare "SmartDNS" "$INSTALLED" "$LATEST" "SmartDNS 软件包版本与 GitHub Release 标签不是同一套版本号，不直接判断是否可更新"
 }
 
 check_mosdns() {
-    if [ "$PKG_MGR" = "opkg" ]; then
+    INSTALLED="$(get_mosdns_runtime_version)"
+    if [ -z "${INSTALLED:-}" ] && [ "$PKG_MGR" = "opkg" ]; then
         INSTALLED="$(get_installed_opkg_version mosdns)"
     else
-        INSTALLED="$(get_installed_apk_version mosdns)"
+        [ -n "${INSTALLED:-}" ] || INSTALLED="$(get_installed_apk_version mosdns luci-app-mosdns)"
     fi
 
     LATEST="$(fetch_latest_tag_jsonfilter mosdns "$MOSDNS_API" || true)"
@@ -207,7 +282,7 @@ check_nikki() {
     if [ "$PKG_MGR" = "opkg" ]; then
         INSTALLED="$(get_installed_opkg_version luci-app-nikki)"
     else
-        INSTALLED="$(get_installed_apk_version luci-app-nikki)"
+        INSTALLED="$(get_installed_apk_version luci-app-nikki nikki)"
     fi
 
     LATEST="$(fetch_latest_tag_jsonfilter nikki "$NIKKI_REPO_API" || true)"
@@ -222,12 +297,9 @@ main() {
 
     need_cmd sed
     need_cmd head
-    need_cmd curl
-
-    if command -v jsonfilter >/dev/null 2>&1; then
-        :
-    else
-        warn "未检测到 jsonfilter，OpenClash / Nikki / SmartDNS / MosDNS 的最新版本检测可能失败"
+    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+        printf '%s\n' "[ERROR] 缺少 curl 或 wget，无法联网检查更新" >&2
+        exit 1
     fi
 
     if command -v opkg >/dev/null 2>&1; then
