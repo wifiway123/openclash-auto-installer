@@ -3,6 +3,7 @@ set -eu
 
 LOCKDIR="/tmp/passwall-install.lock"
 GH_API="https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/latest"
+GH_REPO_PAGE="https://github.com/Openwrt-Passwall/openwrt-passwall"
 SF_BASE="https://sourceforge.net/projects/openwrt-passwall-build/files"
 TMPFILES=""
 
@@ -122,11 +123,26 @@ download_pkg_from_dir() {
 
 github_release_prefix() {
     case "$PKG_MGR:$SUPPORTED_RELEASE" in
-        apk:*) printf '25.12%%2B_' ;;
+        apk:*) printf '25.12+_' ;;
         opkg:24.10|opkg:23.05) printf '23.05-24.10_' ;;
         opkg:22.03) printf '22.03-_' ;;
         *) printf '' ;;
     esac
+}
+
+fetch_github_latest_tag_page() {
+    page="$(fetch_text "${GH_REPO_PAGE}/releases/latest")" || return 1
+    printf '%s\n' "$page" \
+        | sed -n 's|.*href="/Openwrt-Passwall/openwrt-passwall/releases/tag/\([^"/?#]*\)".*|\1|p' \
+        | head -n1
+}
+
+fetch_github_release_asset_urls_page() {
+    tag="$1"
+    [ -n "$tag" ] || return 1
+    page="$(fetch_text "${GH_REPO_PAGE}/releases/expanded_assets/${tag}")" || return 1
+    printf '%s\n' "$page" \
+        | sed -n 's|.*href="\(/Openwrt-Passwall/openwrt-passwall/releases/download/[^"]*\)".*|https://github.com\1|p'
 }
 
 find_github_pkg_url() {
@@ -134,8 +150,14 @@ find_github_pkg_url() {
     ext="$2"
     prefix="$(github_release_prefix)"
     [ -n "$prefix" ] || return 1
-    printf '%s\n' "$GH_RELEASE_JSON" \
-        | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' \
+    {
+        if [ -n "${GH_RELEASE_JSON:-}" ]; then
+            printf '%s\n' "$GH_RELEASE_JSON" \
+                | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p'
+        fi
+        [ -z "${GH_RELEASE_ASSET_URLS:-}" ] || printf '%s\n' "$GH_RELEASE_ASSET_URLS"
+    } \
+        | sed 's/%2B/+/g' \
         | grep "/${prefix}[^/]*${pkg}[^/]*\.${ext}$" \
         | head -n1
 }
@@ -170,7 +192,7 @@ download_passwall_pkg() {
     dir="$2"
     ext="$3"
 
-    if [ -n "${GH_RELEASE_JSON:-}" ]; then
+    if [ -n "${GH_RELEASE_JSON:-}${GH_RELEASE_ASSET_URLS:-}" ]; then
         download_pkg_from_github_release "$pkg" "$ext" && return 0
         warn "GitHub release assets 下载失败，回退 SourceForge 目录。"
     fi
@@ -245,7 +267,15 @@ fi
 
 GH_RELEASE_JSON="$(fetch_text "$GH_API" 2>/dev/null || true)"
 GH_LATEST="$(printf '%s' "$GH_RELEASE_JSON" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1 || true)"
+if [ -z "$GH_LATEST" ]; then
+    GH_LATEST="$(fetch_github_latest_tag_page 2>/dev/null || true)"
+fi
 [ -n "$GH_LATEST" ] && log "GitHub latest release: $GH_LATEST"
+GH_RELEASE_ASSET_URLS=""
+if [ -z "$GH_RELEASE_JSON" ] && [ -n "$GH_LATEST" ]; then
+    GH_RELEASE_ASSET_URLS="$(fetch_github_release_asset_urls_page "$GH_LATEST" 2>/dev/null || true)"
+    [ -n "$GH_RELEASE_ASSET_URLS" ] && log "GitHub release assets: 已通过网页兜底获取"
+fi
 
 case "$PKG_MGR" in
     opkg)

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+## v1.2.5
+
 - 修复 PassWall 安装 / 更新时只从 SourceForge 目录抓包导致无法安装 GitHub 最新 release 的问题；`passwall.sh` 现在优先匹配 GitHub release assets（如 `26.5.20-1` 的 `23.05-24.10_*` / `25.12+_*` 包），下载时带 `gh-proxy.com` 兜底，失败后再回退 SourceForge 目录。
+- 修复 GitHub API 触发 rate limit 或临时不可用时 PassWall 仍可能拿不到最新 release assets 的问题；`passwall.sh` 现在会解析 GitHub release 页面和 `expanded_assets` 作为兜底。
 
 ## v1.2.4
 
