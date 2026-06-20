@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- 新增 `daed.sh`，从 `daeuniverse/daed` 官方 Release 安装 / 更新 daed 静态二进制、GeoIP/GeoSite 数据与 OpenWrt procd 服务。
+- 菜单、更新检测和安全卸载新增 daed 入口；安装前检查架构、Linux 5.17+、eBPF/BTF 内核能力及磁盘空间。
+- daed 最新版本检测仅匹配正式 `v*` Release，避免被同仓库的 `dae-lang-core` 等组件 Release 干扰。
+- daed 默认集成 `QiuSimons/luci-app-daed` 与中文包，安装后可从 LuCI“服务 → DAED”启停、查看日志和打开仪表板；OpenWrt 24.10 / 25.12 分别自动匹配 `ipk` / `apk`。
+- daed 全新安装时 LuCI“启用”选项默认不勾选，等待用户手动启用；安装结束时不再额外停止或禁用服务，需要自动启用并启动时可显式传入 `--start`。
+- daed 安装前新增 BTF 文件检查，支持 OpenWrt 25.12.4 `apk` 环境，但会拒绝缺少内置 BTF 或匹配 `vmlinux-btf` 的官方原版/裁剪固件，避免安装成功后无法运行。
+- 根据官方原版 OpenWrt 实机测试完善 daed 的 BTF 报错与文档，明确包管理器兼容不等于内核兼容，且外置 `vmlinux-btf` 必须针对当前固件与内核自行构建。
+- daed 在 OpenWrt 25.12 `apk` 环境缺少内置 BTF 时，会从上游推荐的软件源按系统架构自动查找并安装外置 `vmlinux-btf`；完整内核版本不一致时必须由用户确认。
+- 修复 OpenWrt 25.12 上 LuCI DAED 界面因缺少包管理器记录中的 `daed` 依赖而安装失败；现在会同时安装匹配架构的上游 daed APK，并明确 2023 面板仅在服务启用并启动后可访问。
+- 修复 OpenWrt 25.12 安装上游 daed APK 后又被通用静态核心和自定义服务脚本覆盖的问题；25.12 现在完整使用上游 OpenWrt 包，并在自动启动时检查进程是否能持续运行及输出崩溃日志。
+- daed 更新时会重启并验证原本已启用的服务；识别旧核心 `local_tcp_sockops` 使用 `bpf_get_current_task` 的不兼容错误，并限制失败重试、自动取消启用，避免持续崩溃刷日志。
+- 修复 OpenWrt 25.12 使用 `apk del daed` 时因 LuCI 反向依赖保留旧核心、后续同版本 APK 未覆盖的问题；现在会同时移除三个相关包、确认旧核心已删除，并清空历史日志后验证新核心。
+
 ## v1.2.5
 
 - 修复 PassWall 安装 / 更新时只从 SourceForge 目录抓包导致无法安装 GitHub 最新 release 的问题；`passwall.sh` 现在优先匹配 GitHub release assets（如 `26.5.20-1` 的 `23.05-24.10_*` / `25.12+_*` 包），下载时带 `gh-proxy.com` 兜底，失败后再回退 SourceForge 目录。

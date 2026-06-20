@@ -211,6 +211,27 @@ safe_uninstall_mosdns() {
     log "MosDNS 安全卸载完成"
 }
 
+safe_uninstall_daed() {
+    PKG_MGR="$1"
+    log "开始安全卸载 daed"
+
+    stop_disable_service luci_daed
+    stop_disable_service daed
+    remove_pkg_if_installed "$PKG_MGR" luci-i18n-daed-zh-cn
+    remove_pkg_if_installed "$PKG_MGR" luci-app-daed
+    remove_pkg_if_installed "$PKG_MGR" daed
+    remove_paths /usr/bin/daed /usr/share/daed /etc/init.d/daed /var/log/daed
+
+    if [ "$DELETE_CONFIG" -eq 1 ]; then
+        log "删除 daed 配置目录和 LuCI 配置"
+        remove_paths /etc/daed /etc/config/daed
+    else
+        warn "默认保留 /etc/daed 配置目录"
+    fi
+
+    log "daed 安全卸载完成"
+}
+
 safe_uninstall_openclash() {
     PKG_MGR="$1"
     log "开始安全卸载 OpenClash（仅卸载主包）"
@@ -237,6 +258,7 @@ usage() {
   sh uninstall.sh nikki [--delete-config]
   sh uninstall.sh smartdns [--delete-config]
   sh uninstall.sh mosdns [--delete-config]
+  sh uninstall.sh daed [--delete-config]
   sh uninstall.sh openclash [--delete-config]
 
 说明:
@@ -289,6 +311,9 @@ main() {
             ;;
         mosdns)
             safe_uninstall_mosdns "$PKG_MGR"
+            ;;
+        daed)
+            safe_uninstall_daed "$PKG_MGR"
             ;;
         openclash)
             safe_uninstall_openclash "$PKG_MGR"
