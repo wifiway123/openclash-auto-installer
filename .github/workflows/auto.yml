@@ -5,8 +5,10 @@ on:
     - cron: '0 0 * * *'   # 每天 UTC 0:00 执行
   workflow_dispatch:       # 支持手动触发
 
+# 关键修正：显式添加 workflows: write 权限
 permissions:
   contents: write
+  workflows: write
 
 jobs:
   sync-upstream:
@@ -43,7 +45,6 @@ jobs:
           echo "🔄 检测到上游更新，正在合并..."
           
           # 尝试合并，冲突时自动使用本地版本（-X ours）
-          # 注意：-X ours 表示保留本地修改，丢弃上游的冲突部分
           if git merge upstream/main --no-edit --allow-unrelated-histories -X ours; then
             echo "✅ 合并成功（冲突时已保留本地修改）"
             git push origin main
