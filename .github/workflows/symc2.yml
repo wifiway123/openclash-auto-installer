@@ -1,0 +1,41 @@
+name: sync-upstream
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  workflows: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Git Config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Sync Run
+        run: |
+          git remote add upstream https://github.com/slobys/openclash-auto-installer.git
+          git fetch upstream main
+          LOCAL_COMMIT=$(git rev-parse HEAD)
+          UPSTREAM_COMMIT=$(git rev-parse upstream/main)
+          if [ "$LOCAL_COMMIT" = "$UPSTREAM_COMMIT" ]; then
+            echo "⏭️ No updates"
+            exit 0
+          fi
+          if git merge upstream/main --no-edit --allow-unrelated-histories -X ours; then
+            echo "✅ Merged"
+            git push origin main
+          else
+            echo "❌ Failed"
+            git merge --abort
+            exit 1
+          fi
